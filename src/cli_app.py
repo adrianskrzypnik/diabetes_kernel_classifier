@@ -14,6 +14,7 @@ from sklearn.metrics import (
 )
 from datetime import datetime
 import numpy as np
+from mpl_toolkits.mplot3d import Axes3D
 
 
 class IncrementalDiabetesCLI:
@@ -661,6 +662,114 @@ class IncrementalDiabetesCLI:
 
         plt.close()
 
+    def visualize_3d_density(self, save_plot=False, grid_resolution=30):
+        """
+        Wizualizuje funkcję gęstości prawdopodobieństwa w 3D (tylko dla modeli 2D)
+        zoptymalizowana wersja
+
+        Args:
+            save_plot: czy zapisać wykres
+            grid_resolution: rozdzielczość siatki (domyślnie 30 dla wydajności)
+        """
+        if self.classifier is None:
+            print("Model nie został wytrenowany!")
+            return
+
+        if len(self.feature_names) != 2:
+            print("Wizualizacja 3D wymaga dokładnie 2 cech")
+            return
+
+        print(f"Wizualizacja 3D dla cech: {self.feature_names} (rozdzielczość: {grid_resolution}x{grid_resolution})")
+
+        # Pobierz zakresy danych treningowych (zdenormalizowanych)
+        if hasattr(self.classifier, 'X_train') and self.classifier.X_train is not None:
+            train_points_denorm = self._denormalize_data(self.classifier.X_train)
+            x_data = train_points_denorm[:, 0]
+            y_data = train_points_denorm[:, 1]
+            x_min, x_max = x_data.min() - 5, x_data.max() + 5
+            y_min, y_max = y_data.min() - 5, y_data.max() + 5
+        else:
+            # Domyślne zakresy
+            x_min, x_max = 20, 80
+            y_min, y_max = 15, 45
+
+        # Utwórz siatkę punktów (mniejsza rozdzielczość)
+        x_range = np.linspace(x_min, x_max, grid_resolution)
+        y_range = np.linspace(y_min, y_max, grid_resolution)
+        x_grid, y_grid = np.meshgrid(x_range, y_range)
+
+        # Przygotuj punkty siatki dla predykcji
+        grid_points = np.column_stack([
+            x_grid.ravel(),
+            y_grid.ravel()
+        ])
+
+        # Normalizuj i przewiduj (całą siatką naraz)
+        grid_points_norm = self._normalize_data(grid_points)
+        predictions = self.classifier.predict_proba(grid_points_norm)
+        prob_diabetes = predictions[:, 1].reshape(x_grid.shape)
+
+        # Tworzenie wykresu 3D
+        fig = plt.figure(figsize=(14, 10))
+        ax = fig.add_subplot(111, projection='3d')
+
+        # Rysuj powierzchnię z większymi krokami (rstride i cstride)
+        surf = ax.plot_surface(x_grid, y_grid, prob_diabetes,
+                               cmap='viridis',
+                               rstride=2, cstride=2,  # Co drugi punkt
+                               edgecolor='none',
+                               alpha=0.7)
+
+        # Ogranicz liczbę punktów treningowych do wyświetlenia
+        max_points_to_show = 100
+
+        if hasattr(self.classifier, 'X_train') and self.classifier.X_train is not None:
+            train_points_denorm = self._denormalize_data(self.classifier.X_train)
+            x_train = train_points_denorm[:, 0]
+            y_train = train_points_denorm[:, 1]
+
+            # Oblicz prawdopodobieństwa tylko dla punktów treningowych
+            z_train = self.classifier.predict_proba(
+                self._normalize_data(train_points_denorm)
+            )[:, 1]
+
+            # Jeśli jest za dużo punktów, wybierz losową próbkę
+            if len(x_train) > max_points_to_show:
+                indices = np.random.choice(len(x_train), max_points_to_show, replace=False)
+                x_train = x_train[indices]
+                y_train = y_train[indices]
+                z_train = z_train[indices]
+                class_0_mask = self.classifier.y_train[indices] == 0
+                class_1_mask = self.classifier.y_train[indices] == 1
+            else:
+                class_0_mask = self.classifier.y_train == 0
+                class_1_mask = self.classifier.y_train == 1
+
+            # Punkty bez cukrzycy (klasa 0)
+            ax.scatter(x_train[class_0_mask], y_train[class_0_mask], z_train[class_0_mask],
+                       c='green', marker='o', s=20, label='Brak cukrzycy', alpha=0.7)
+
+            # Punkty z cukrzycą (klasa 1)
+            ax.scatter(x_train[class_1_mask], y_train[class_1_mask], z_train[class_1_mask],
+                       c='red', marker='s', s=20, label='Cukrzyca', alpha=0.7)
+
+        # Opisy osi
+        ax.set_xlabel(self.feature_names[0].replace('_', ' ').title())
+        ax.set_ylabel(self.feature_names[1].replace('_', ' ').title())
+        ax.set_zlabel('P(cukrzyca)')
+        ax.set_title('Funkcja gęstości prawdopodobieństwa - 3D')
+        ax.legend()
+
+        # Dodanie paska kolorów
+        fig.colorbar(surf, ax=ax, shrink=0.5, aspect=5, label='P(cukrzyca)')
+
+        if save_plot:
+            filename = f'diabetes_3d_density_{self.feature_names[0]}_{self.feature_names[1]}.png'
+            plt.savefig(filename, dpi=200, bbox_inches='tight')  # Niższe DPI
+            print(f"Wykres 3D zapisany jako '{filename}'")
+
+        plt.show()
+
 
 def parse_data_input(input_str):
     """Parsuje dane wejściowe w formacie klucz=wartość"""
@@ -708,6 +817,8 @@ Przykłady użycia:
 
 6. Wizualizacja:
    python incremental_cli.py --visualize
+   
+
         """)
 
     parser.add_argument('--initial-train', action='store_true',
@@ -734,6 +845,8 @@ Przykłady użycia:
                         help='Ścieżka do bazy danych')
     parser.add_argument('--evaluate', action='store_true',
                         help='Przeprowadź pełną ewaluację modelu')
+    parser.add_argument('--visualize3d', action='store_true',
+                        help='Wizualizuj gęstość prawdopodobieństwa w 3D')
 
     args = parser.parse_args()
 
@@ -770,6 +883,8 @@ Przykłady użycia:
         cli.show_stats()
     elif args.evaluate:
         cli.run_evaluation(test_size=0.3)
+    elif args.visualize3d:
+        cli.visualize_3d_density(save_plot=True)
     else:
         parser.print_help()
 

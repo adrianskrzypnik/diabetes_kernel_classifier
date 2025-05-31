@@ -1,0 +1,28 @@
+=== RAPORT EWALUACJI KLASYFIKATORA CUKRZYCY ===
+
+Data wykonania: 2025-05-31 11:59:58.090555
+Parametry modelu: bandwidth=2.0
+U¿yte cechy: ['age', 'bmi']
+
+Liczba próbek treningowych: 539
+Liczba próbek testowych: 232
+
+Dok³adnoœæ (Accuracy): 0.6810
+Precyzja (Precision): 0.5385
+Czu³oœæ (Recall): 0.6829
+F1-Score: 0.6022
+AUC-ROC: 0.7544
+
+Macierz pomy³ek:
+[[102,  48],
+ [ 26,  56]]
+
+Raport klasyfikacji:
+               precision    recall  f1-score   support
+
+Brak cukrzycy       0.80      0.68      0.73       150
+     Cukrzyca       0.54      0.68      0.60        82
+
+     accuracy                           0.68       232
+    macro avg       0.67      0.68      0.67       232
+ weighted avg       0.71      0.68      0.69       232

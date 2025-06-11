@@ -615,52 +615,266 @@ class IncrementalDiabetesCLI:
             }
 
     def _plot_evaluation_results(self, results, filename):
-        """Generuje wizualizację wyników ewaluacji"""
+        """Generuje profesjonalną wizualizację wyników ewaluacji"""
         if not results:
             return
 
-        plt.figure(figsize=(15, 10))
+        # Konfiguracja stylu wykresów
+        plt.style.use('seaborn-v0_8')
+        fig = plt.figure(figsize=(20, 12))
 
-        # Macierz pomyłek
-        plt.subplot(2, 2, 1)
-        sns.heatmap(results['confusion_matrix'], annot=True, fmt='d', cmap='Blues',
+        # Kolory dla spójności wizualnej
+        colors = {
+            'primary': '#2E86AB',
+            'secondary': '#A23B72',
+            'success': '#F18F01',
+            'danger': '#C73E1D',
+            'light': '#F5F5F5',
+            'text': '#2C3E50'
+        }
+
+        # 1. Macierz pomyłek z dodatkowymi informacjami
+        plt.subplot(2, 3, 1)
+        cm = results['confusion_matrix']
+
+        # Oblicz percentages dla macierzy pomyłek
+        cm_percent = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis] * 100
+
+        # Tworzenie macierzy z liczbami i procentami
+        annotations = []
+        for i in range(cm.shape[0]):
+            row_annotations = []
+            for j in range(cm.shape[1]):
+                row_annotations.append(f'{cm[i, j]}\n({cm_percent[i, j]:.1f}%)')
+            annotations.append(row_annotations)
+
+        sns.heatmap(cm, annot=annotations, fmt='', cmap='Blues',
+                    cbar_kws={'label': 'Liczba przypadków'},
                     xticklabels=['Brak cukrzycy', 'Cukrzyca'],
                     yticklabels=['Brak cukrzycy', 'Cukrzyca'])
-        plt.title('Macierz pomyłek')
-        plt.xlabel('Predykcja')
-        plt.ylabel('Rzeczywistość')
+        plt.title('Macierz pomyłek\n(liczba przypadków i procenty)',
+                  fontsize=14, fontweight='bold', color=colors['text'])
+        plt.xlabel('Predykcja', fontsize=12, fontweight='bold')
+        plt.ylabel('Rzeczywistość', fontsize=12, fontweight='bold')
 
-        # Krzywa ROC
-        plt.subplot(2, 2, 2)
-        if hasattr(results, 'y_test') and hasattr(results, 'y_proba'):
-            try:
-                fpr, tpr, _ = roc_curve(results['y_test'], results['y_proba'])
-                plt.plot(fpr, tpr, label=f'AUC = {results["roc_auc"]:.2f}')
-                plt.plot([0, 1], [0, 1], 'k--')
-                plt.title('Krzywa ROC')
-                plt.xlabel('False Positive Rate')
-                plt.ylabel('True Positive Rate')
-                plt.legend(loc='lower right')
-            except Exception:
-                plt.text(0.3, 0.5, "Błąd generowania krzywej ROC", fontsize=12)
-
-        # Wykres metryk
-        plt.subplot(2, 2, 3)
-        metrics = ['accuracy', 'precision', 'recall', 'f1']
-        values = [results.get(m, 0) for m in metrics]
-        plt.bar(metrics, values, color=['blue', 'green', 'orange', 'red'])
-        plt.ylim(0, 1)
-        plt.title('Podstawowe metryki')
-
-        plt.tight_layout()
-
+        # 2. Krzywa ROC z dodatkowymi informacjami
+        plt.subplot(2, 3, 2)
         try:
-            plt.savefig(filename, dpi=300)
+            if 'y_test' in results and 'y_proba' in results:
+                fpr, tpr, thresholds = roc_curve(results['y_test'], results['y_proba'])
+
+                plt.plot(fpr, tpr, color=colors['primary'], linewidth=3,
+                         label=f'Model (AUC = {results["roc_auc"]:.3f})')
+                plt.plot([0, 1], [0, 1], color=colors['danger'], linestyle='--',
+                         linewidth=2, label='Losowy klasyfikator (AUC = 0.500)')
+
+                # Dodaj punkt optymalny (najbliższy lewemu górnemu rogowi)
+                optimal_idx = np.argmax(tpr - fpr)
+                optimal_threshold = thresholds[optimal_idx]
+                plt.plot(fpr[optimal_idx], tpr[optimal_idx], 'ro', markersize=8,
+                         label=f'Próg optymalny = {optimal_threshold:.3f}')
+
+                plt.fill_between(fpr, tpr, alpha=0.2, color=colors['primary'])
+
+            else:
+                plt.text(0.5, 0.5, "Brak danych do wygenerowania krzywej ROC",
+                         ha='center', va='center', fontsize=12, transform=plt.gca().transAxes)
+        except Exception as e:
+            plt.text(0.5, 0.5, f"Błąd generowania krzywej ROC:\n{str(e)}",
+                     ha='center', va='center', fontsize=10, transform=plt.gca().transAxes)
+
+        plt.title('Krzywa ROC', fontsize=14, fontweight='bold', color=colors['text'])
+        plt.xlabel('Współczynnik fałszywie pozytywnych (FPR)', fontsize=12)
+        plt.ylabel('Współczynnik prawdziwie pozytywnych (TPR)', fontsize=12)
+        plt.legend(loc='lower right', fontsize=10)
+        plt.grid(True, alpha=0.3)
+
+        # 3. Wykres słupkowy metryk z wartościami
+        plt.subplot(2, 3, 3)
+        metrics = ['Dokładność', 'Precyzja', 'Czułość', 'F1-Score', 'AUC-ROC']
+        metric_keys = ['accuracy', 'precision', 'recall', 'f1', 'roc_auc']
+        values = [results.get(key, 0) for key in metric_keys]
+
+        # Kolory słupków według wartości (gradient od czerwonego do zielonego)
+        bar_colors = []
+        for val in values:
+            if val >= 0.8:
+                bar_colors.append(colors['success'])
+            elif val >= 0.6:
+                bar_colors.append('#F39C12')  # Pomarańczowy
+            else:
+                bar_colors.append(colors['danger'])
+
+        bars = plt.bar(metrics, values, color=bar_colors, alpha=0.8, edgecolor='black', linewidth=1)
+
+        # Dodaj wartości na słupkach
+        for bar, value in zip(bars, values):
+            height = bar.get_height()
+            plt.text(bar.get_x() + bar.get_width() / 2., height + 0.01,
+                     f'{value:.3f}', ha='center', va='bottom', fontweight='bold')
+
+        plt.ylim(0, 1.1)
+        plt.title('Metryki wydajności modelu', fontsize=14, fontweight='bold', color=colors['text'])
+        plt.ylabel('Wartość metryki', fontsize=12)
+        plt.xticks(rotation=45, ha='right')
+        plt.grid(True, alpha=0.3, axis='y')
+
+        # 4. Rozkład prawdopodobieństw predykcji
+        plt.subplot(2, 3, 4)
+        if 'y_test' in results and 'y_proba' in results:
+            y_test = results['y_test']
+            y_proba = results['y_proba']
+
+            # Prawdopodobieństwa dla klasy 0 (brak cukrzycy)
+            proba_class_0 = y_proba[y_test == 0]
+            # Prawdopodobieństwa dla klasy 1 (cukrzyca)
+            proba_class_1 = y_proba[y_test == 1]
+
+            plt.hist(proba_class_0, bins=20, alpha=0.7, color=colors['primary'],
+                     label=f'Brak cukrzycy (n={len(proba_class_0)})', density=True)
+            plt.hist(proba_class_1, bins=20, alpha=0.7, color=colors['secondary'],
+                     label=f'Cukrzyca (n={len(proba_class_1)})', density=True)
+
+            # Dodaj linię na 0.5 (próg decyzyjny)
+            plt.axvline(x=0.5, color=colors['danger'], linestyle='--', linewidth=2,
+                        label='Próg decyzyjny (0.5)')
+
+            plt.xlabel('Prawdopodobieństwo cukrzycy', fontsize=12)
+            plt.ylabel('Gęstość', fontsize=12)
+            plt.title('Rozkład prawdopodobieństw predykcji', fontsize=14, fontweight='bold', color=colors['text'])
+            plt.legend()
+            plt.grid(True, alpha=0.3)
+        else:
+            plt.text(0.5, 0.5, "Brak danych prawdopodobieństw",
+                     ha='center', va='center', transform=plt.gca().transAxes)
+
+        # 5. Precision-Recall curve
+        plt.subplot(2, 3, 5)
+        try:
+            if 'y_test' in results and 'y_proba' in results:
+                from sklearn.metrics import precision_recall_curve, average_precision_score
+
+                precision_vals, recall_vals, pr_thresholds = precision_recall_curve(
+                    results['y_test'], results['y_proba'])
+                avg_precision = average_precision_score(results['y_test'], results['y_proba'])
+
+                plt.plot(recall_vals, precision_vals, color=colors['secondary'], linewidth=3,
+                         label=f'Model (AP = {avg_precision:.3f})')
+
+                # Baseline (proporcja pozytywnych przykładów)
+                baseline = np.mean(results['y_test'])
+                plt.axhline(y=baseline, color=colors['danger'], linestyle='--', linewidth=2,
+                            label=f'Baseline (AP = {baseline:.3f})')
+
+                plt.fill_between(recall_vals, precision_vals, alpha=0.2, color=colors['secondary'])
+
+                plt.xlabel('Czułość (Recall)', fontsize=12)
+                plt.ylabel('Precyzja (Precision)', fontsize=12)
+                plt.title('Krzywa Precision-Recall', fontsize=14, fontweight='bold', color=colors['text'])
+                plt.legend(loc='lower left')
+                plt.grid(True, alpha=0.3)
+                plt.xlim([0, 1])
+                plt.ylim([0, 1])
+            else:
+                plt.text(0.5, 0.5, "Brak danych do krzywej P-R",
+                         ha='center', va='center', transform=plt.gca().transAxes)
+        except Exception as e:
+            plt.text(0.5, 0.5, f"Błąd P-R curve:\n{str(e)}",
+                     ha='center', va='center', fontsize=10, transform=plt.gca().transAxes)
+
+        # 6. Podsumowanie tekstowe
+        plt.subplot(2, 3, 6)
+        plt.axis('off')
+
+        # Interpretacja wyników
+        interpretation_text = f"""
+    INTERPRETACJA WYNIKÓW:
+
+    📊 OGÓLNA WYDAJNOŚĆ:
+    • Dokładność: {results.get('accuracy', 0):.1%}
+    • Model {'DOBRY' if results.get('accuracy', 0) > 0.8 else 'ŚREDNI' if results.get('accuracy', 0) > 0.6 else 'WYMAGA POPRAWY'}
+
+    🎯 PRECYZJA I CZUŁOŚĆ:
+    • Precyzja: {results.get('precision', 0):.1%}
+    • Czułość: {results.get('recall', 0):.1%}
+    • F1-Score: {results.get('f1', 0):.1%}
+
+    📈 ZDOLNOŚĆ ROZRÓŻNIANIA:
+    • AUC-ROC: {results.get('roc_auc', 0):.3f}
+    • {'Doskonała' if results.get('roc_auc', 0) > 0.9 else 'Dobra' if results.get('roc_auc', 0) > 0.8 else 'Umiarkowana' if results.get('roc_auc', 0) > 0.7 else 'Słaba'} zdolność klasyfikacji
+
+    ⚠️  BŁĘDY:
+    • Fałszywie pozytywne: {results['confusion_matrix'][0, 1] if 'confusion_matrix' in results else 'N/A'}
+    • Fałszywie negatywne: {results['confusion_matrix'][1, 0] if 'confusion_matrix' in results else 'N/A'}
+
+    💡 REKOMENDACJE:
+    """
+
+        # Dodaj rekomendacje na podstawie wyników
+        if results.get('precision', 0) < 0.7:
+            interpretation_text += "• Zwiększ precyzję - za dużo fałszywych alarmów\n"
+        if results.get('recall', 0) < 0.7:
+            interpretation_text += "• Popraw czułość - model pomija przypadki cukrzycy\n"
+        if results.get('roc_auc', 0) < 0.8:
+            interpretation_text += "• Rozważ dostrojenie parametrów modelu\n"
+        if results.get('accuracy', 0) > 0.85:
+            interpretation_text += "• Model działa bardzo dobrze!\n"
+
+        plt.text(0.05, 0.95, interpretation_text, transform=plt.gca().transAxes,
+                 fontsize=10, verticalalignment='top', fontfamily='monospace',
+                 bbox=dict(boxstyle="round,pad=0.5", facecolor=colors['light'], alpha=0.8))
+
+        # Ogólne ustawienia wykresu
+        plt.suptitle(f'Raport ewaluacji klasyfikatora cukrzycy\n'
+                     f'Wygenerowano: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}',
+                     fontsize=16, fontweight='bold', y=0.98)
+
+        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+
+        # Zapis wykresu
+        try:
+            plt.savefig(filename, dpi=300, bbox_inches='tight',
+                        facecolor='white', edgecolor='none')
             print(f"✅ Wizualizacja wyników zapisana jako: {filename}")
+
+            # Opcjonalnie zapisz też w formacie PDF dla lepszej jakości
+            pdf_filename = filename.replace('.png', '.pdf')
+            plt.savefig(pdf_filename, bbox_inches='tight',
+                        facecolor='white', edgecolor='none')
+            print(f"✅ Wersja PDF zapisana jako: {pdf_filename}")
+
         except Exception as e:
             print(f"⛔ Błąd zapisu wykresu: {e}")
 
         plt.close()
+
+    def _calculate_additional_metrics(self, results):
+        """Oblicza dodatkowe metryki dla lepszej analizy"""
+        try:
+            cm = results['confusion_matrix']
+            tn, fp, fn, tp = cm.ravel()
+
+            # Dodatkowe metryki
+            specificity = tn / (tn + fp) if (tn + fp) > 0 else 0
+            sensitivity = tp / (tp + fn) if (tp + fn) > 0 else 0
+            npv = tn / (tn + fn) if (tn + fn) > 0 else 0  # Negative Predictive Value
+            ppv = tp / (tp + fp) if (tp + fp) > 0 else 0  # Positive Predictive Value
+
+            results.update({
+                'specificity': specificity,
+                'sensitivity': sensitivity,
+                'npv': npv,
+                'ppv': ppv,
+                'true_negatives': tn,
+                'false_positives': fp,
+                'false_negatives': fn,
+                'true_positives': tp
+            })
+
+            return results
+        except Exception as e:
+            print(f"Błąd obliczania dodatkowych metryk: {e}")
+            return results
 
     def visualize_3d_density(self, save_plot=False, grid_resolution=30):
         """
@@ -801,22 +1015,22 @@ def main():
 Przykłady użycia:
 
 1. Początkowe trenowanie modelu:
-   python incremental_cli.py --initial-train
+   python cli_app.py --initial-train
 
 2. Trenowanie z wybranymi cechami:
-   python incremental_cli.py --initial-train --features age,bmi,glucose
+   python cli_app.py --initial-train --features age,bmi,glucose
 
 3. Dodanie nowego punktu:
-   python incremental_cli.py --add "age=45,bmi=28.5,outcome=1"
+   python cli_app.py --add "age=45,bmi=28.5,outcome=1"
 
 4. Predykcja:
-   python incremental_cli.py --predict "age=35,bmi=25"
+   python cli_app.py --predict "age=35,bmi=25"
 
 5. Tryb interaktywny:
-   python incremental_cli.py --interactive
+   python cli_app.py --interactive
 
 6. Wizualizacja:
-   python incremental_cli.py --visualize
+   python cli_app.py --visualize
    
 
         """)
